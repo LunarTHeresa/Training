@@ -15,23 +15,24 @@
         <table style="width:100%;border-collapse:collapse;font-size:14px;">
             <tr style="background:#f8f9fa;">
                 <th style="padding:8px 12px;border:1px solid #ddd;text-align:left;">用户名</th>
-                <th style="padding:8px 12px;border:1px solid #ddd;text-align:left;">密码</th>
                 <th style="padding:8px 12px;border:1px solid #ddd;text-align:left;">角色</th>
+                <th style="padding:8px 12px;border:1px solid #ddd;text-align:left;">邮箱</th>
                 <th style="padding:8px 12px;border:1px solid #ddd;text-align:left;">余额</th>
             </tr>
             <tr>
                 <td style="padding:8px 12px;border:1px solid #ddd;">admin</td>
-                <td style="padding:8px 12px;border:1px solid #ddd;">admin123</td>
                 <td style="padding:8px 12px;border:1px solid #ddd;">admin</td>
+                <td style="padding:8px 12px;border:1px solid #ddd;">admin@example.com</td>
                 <td style="padding:8px 12px;border:1px solid #ddd;">99999</td>
             </tr>
             <tr>
                 <td style="padding:8px 12px;border:1px solid #ddd;">alice</td>
-                <td style="padding:8px 12px;border:1px solid #ddd;">alice2025</td>
                 <td style="padding:8px 12px;border:1px solid #ddd;">user</td>
+                <td style="padding:8px 12px;border:1px solid #ddd;">alice@example.com</td>
                 <td style="padding:8px 12px;border:1px solid #ddd;">100</td>
             </tr>
         </table>
+        <p style="color:#888;font-size:12px;margin-top:8px;">🔒 密码已加盐哈希存储</p>
     {% else %}
         <p>请先登录</p>
         <a href="/login" class="btn">前往登录</a>
