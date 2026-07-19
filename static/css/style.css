@@ -191,3 +191,48 @@ body {
     color: #333;
     flex: 1;
 }
+
+/* 验证码 */
+.captcha-group {
+    margin-bottom: 4px;
+}
+
+.captcha-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.captcha-svg {
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    line-height: 0;
+    overflow: hidden;
+}
+
+.captcha-svg svg {
+    display: block;
+}
+
+.btn-refresh {
+    width: 40px;
+    height: 40px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: #f8f9fa;
+    font-size: 18px;
+    cursor: pointer;
+    transition: background 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-refresh:hover {
+    background: #e9ecef;
+}
+
+#captcha {
+    width: 120px;
+}
