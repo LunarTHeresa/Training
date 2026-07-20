@@ -83,7 +83,7 @@ limiter = Limiter(
 USERS = {
     "admin": {
         "username": "admin",
-        "password": generate_password_hash("Admin@2026!Secure#Pwd"),
+        "password": generate_password_hash("admin123"),
         "role": "admin",
         "email": "admin@example.com",
         "phone": "13800138000",
@@ -91,7 +91,7 @@ USERS = {
     },
     "alice": {
         "username": "alice",
-        "password": generate_password_hash("Alice#Secure$2026"),
+        "password": generate_password_hash("alice2025"),
         "role": "user",
         "email": "alice@example.com",
         "phone": "13900139001",
