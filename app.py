@@ -305,8 +305,27 @@ def search():
     # 渲染首页并传递搜索结果
     username = session.get("username")
     user = None
-    if username and username in USERS:
-        user = USERS[username]
+    if username:
+        if username in USERS:
+            user = USERS[username]
+        else:
+            conn = sqlite3.connect(DATABASE_PATH)
+            try:
+                cur = conn.cursor()
+                cur.execute("SELECT username, email, phone FROM users WHERE username = ?", (username,))
+                row = cur.fetchone()
+                if row:
+                    user = {
+                        "username": row[0],
+                        "email": row[1],
+                        "phone": row[2],
+                        "role": "user",
+                        "balance": 0,
+                    }
+            except Exception:
+                pass
+            finally:
+                conn.close()
     return render_template("index.html", user=user, results=results, keyword=keyword)
 
 
@@ -323,8 +342,28 @@ def admin_panel():
 def index():
     username = session.get("username")
     user = None
-    if username and username in USERS:
-        user = USERS[username]
+    if username:
+        if username in USERS:
+            user = USERS[username]
+        else:
+            # 从 SQLite 查注册用户的信息
+            conn = sqlite3.connect(DATABASE_PATH)
+            try:
+                cur = conn.cursor()
+                cur.execute("SELECT username, email, phone FROM users WHERE username = ?", (username,))
+                row = cur.fetchone()
+                if row:
+                    user = {
+                        "username": row[0],
+                        "email": row[1],
+                        "phone": row[2],
+                        "role": "user",
+                        "balance": 0,
+                    }
+            except Exception:
+                pass
+            finally:
+                conn.close()
     return render_template("index.html", user=user, results=[], keyword="")
 
 
@@ -402,15 +441,42 @@ def login():
             captcha_svg=captcha_svg,
         )
 
-    # 🔐 密码验证 — 统一错误提示（不区分用户是否存在）
+    # 🔐 密码验证 — 先查 USERS 字典，再查 SQLite 数据库
+    login_ok = False
+    user_data = None
+
     if username in USERS and check_password_hash(USERS[username]["password"], password):
+        login_ok = True
+        user_data = USERS[username]
+    else:
+        # 尝试从 SQLite 数据库查找（注册的用户）
+        conn = sqlite3.connect(DATABASE_PATH)
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT username, password, email, phone FROM users WHERE username = ?", (username,))
+            row = cur.fetchone()
+            if row and check_password_hash(row[1], password):
+                login_ok = True
+                user_data = {
+                    "username": row[0],
+                    "password": row[1],
+                    "email": row[2],
+                    "phone": row[3],
+                    "role": "user",
+                    "balance": 0,
+                }
+        except Exception:
+            pass
+        finally:
+            conn.close()
+
+    if login_ok:
         # ✅ 登录成功
         FAILED_ATTEMPTS.pop(username, None)
         # 🔐 刷新 session（防 session 固定攻击）
         session.clear()
         session["username"] = username
-        user = USERS[username]
-        return render_template("index.html", user=user)
+        return render_template("index.html", user=user_data)
     else:
         # ❌ 登录失败
         record_failed_attempt(username)
