@@ -58,11 +58,11 @@ def init_db():
             phone TEXT
         )
     """)
-    # 插入默认用户（INSERT OR IGNORE 防止重复）
+    # 插入默认用户（INSERT OR IGNORE 防止重复）；密码使用哈希存储
     cur.execute("INSERT OR IGNORE INTO users (username, password, email, phone) VALUES (?, ?, ?, ?)",
-                ("admin", "admin123", "admin@example.com", "13800138000"))
+                ("admin", generate_password_hash("admin123"), "admin@example.com", "13800138000"))
     cur.execute("INSERT OR IGNORE INTO users (username, password, email, phone) VALUES (?, ?, ?, ?)",
-                ("alice", "alice2025", "alice@example.com", "13900139001"))
+                ("alice", generate_password_hash("alice2025"), "alice@example.com", "13900139001"))
     conn.commit()
     conn.close()
     print("✅ 数据库初始化完成")
@@ -238,23 +238,42 @@ def register():
         email = request.form.get("email", "")
         phone = request.form.get("phone", "")
 
-        # ✅ 安全：使用参数化查询（? 占位符），用户输入仅作为数据处理
-        sql = "INSERT INTO users (username, password, email, phone) VALUES (?, ?, ?, ?)"
-        print(f"[REGISTER SQL] {sql} | params: ({username}, {password}, {email}, {phone})", flush=True)
+        # 🔐 输入校验
+        if not isinstance(username, str) or not isinstance(password, str):
+            message = "非法请求参数"
+        elif not username.strip() or not password:
+            message = "用户名和密码不能为空"
+        elif len(username) > 50 or len(password) > 100:
+            message = "参数长度异常"
+        elif email and len(email) > 100:
+            message = "邮箱长度异常"
+        elif phone and len(phone) > 20:
+            message = "手机号长度异常"
+        else:
+            username = username.strip()
+            # ✅ 安全：使用参数化查询（? 占位符），用户输入仅作为数据处理
+            sql = "INSERT INTO users (username, password, email, phone) VALUES (?, ?, ?, ?)"
+            # 🔐 密码哈希存储；日志不记录明文密码
+            hashed = generate_password_hash(password)
+            print(f"[REGISTER SQL] {sql} | params: ({username}, ***, {email}, {phone})", flush=True)
 
-        conn = sqlite3.connect(DATABASE_PATH)
-        try:
-            cur = conn.cursor()
-            cur.execute(sql, (username, password, email, phone))
-            conn.commit()
-            return render_template("login.html",
-                                   error="注册成功，请登录",
-                                   csrf_token=generate_csrf_token(),
-                                   captcha_svg=generate_captcha()[0])
-        except Exception as e:
-            message = f"注册失败：{e}"
-        finally:
-            conn.close()
+            conn = sqlite3.connect(DATABASE_PATH)
+            try:
+                cur = conn.cursor()
+                cur.execute(sql, (username, hashed, email, phone))
+                conn.commit()
+                return render_template("login.html",
+                                       error="注册成功，请登录",
+                                       csrf_token=generate_csrf_token(),
+                                       captcha_svg=generate_captcha()[0])
+            except sqlite3.IntegrityError:
+                # 用户名唯一约束冲突 — 不泄露数据库细节
+                message = "用户名已被占用，请更换"
+            except Exception as e:
+                print(f"[REGISTER ERROR] {e}", flush=True)
+                message = "注册失败，请稍后重试"
+            finally:
+                conn.close()
 
     return render_template("register.html", message=message)
 
@@ -425,9 +444,11 @@ def logout():
     return redirect("/")
 
 
+# 模块加载时初始化数据库，确保 flask run / gunicorn 等任意启动方式下都可用
+init_db()
+
+
 if __name__ == "__main__":
-    # 初始化数据库
-    init_db()
     # 🔐 关闭 debug 模式，使用环境变量控制
     debug_mode = os.environ.get("FLASK_DEBUG", "0") == "1"
     app.run(debug=debug_mode, host="0.0.0.0", port=5000)
