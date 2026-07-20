@@ -21,4 +21,44 @@
         <a href="/login" class="btn">前往登录</a>
     </div>
 {% endif %}
+
+<div class="card">
+    <h2>🔍 搜索用户</h2>
+    <form method="get" action="/search" class="search-form">
+        <div class="search-row">
+            <input type="text" name="keyword" placeholder="输入用户名或邮箱搜索..." value="{{ keyword }}" class="search-input">
+            <button type="submit" class="btn">搜索</button>
+        </div>
+    </form>
+
+    {% if keyword %}
+        <div class="search-results">
+            {% if results %}
+                <p style="margin:12px 0 8px;font-size:14px;color:#888;">找到 <strong>{{ results|length }}</strong> 条匹配"{{ keyword }}"的结果</p>
+                <table class="result-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>用户名</th>
+                            <th>邮箱</th>
+                            <th>手机</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for r in results %}
+                        <tr>
+                            <td>{{ r.id }}</td>
+                            <td>{{ r.username }}</td>
+                            <td>{{ r.email }}</td>
+                            <td>{{ r.phone }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% else %}
+                <p class="no-result">❌ 无搜索结果</p>
+            {% endif %}
+        </div>
+    {% endif %}
+</div>
 {% endblock %}

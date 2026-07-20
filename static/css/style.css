@@ -236,3 +236,73 @@ body {
 #captcha {
     width: 120px;
 }
+
+/* 搜索 */
+.search-form {
+    margin-top: 8px;
+}
+
+.search-row {
+    display: flex;
+    gap: 8px;
+}
+
+.search-input {
+    flex: 1;
+    padding: 10px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.search-input:focus {
+    border-color: #667eea;
+    box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
+}
+
+.no-result {
+    color: #d94a4a;
+    font-size: 14px;
+    margin-top: 12px;
+}
+
+.result-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 12px;
+    font-size: 14px;
+}
+
+.result-table th {
+    background: #f8f9fa;
+    padding: 10px 14px;
+    text-align: left;
+    font-weight: 600;
+    color: #555;
+    border-bottom: 2px solid #eee;
+}
+
+.result-table td {
+    padding: 10px 14px;
+    border-bottom: 1px solid #eee;
+    color: #333;
+}
+
+.result-table tr:hover {
+    background: #f8f9fa;
+}
+
+/* 注册页提示 */
+.register-link {
+    text-align: center;
+    margin-top: 12px;
+    font-size: 13px;
+    color: #888;
+}
+
+.register-link a {
+    color: #667eea;
+    text-decoration: none;
+}

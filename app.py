@@ -12,6 +12,7 @@
   [低危] HTML注释泄露默认账号 → 已清除
 """
 import os
+import sqlite3
 import secrets
 import time
 import random
@@ -35,6 +36,36 @@ app.secret_key = os.environ.get("SECRET_KEY") or secrets.token_hex(32)
 
 # 🔐 Session 30 分钟过期
 app.permanent_session_lifetime = timedelta(minutes=30)
+
+# =============================================
+# 数据库初始化（SQLite — 用于注册和搜索）
+# =============================================
+DATABASE_DIR = os.path.join(os.path.dirname(__file__), "data")
+DATABASE_PATH = os.path.join(DATABASE_DIR, "users.db")
+
+
+def init_db():
+    """初始化 SQLite 数据库，创建 users 表并插入默认用户"""
+    os.makedirs(DATABASE_DIR, exist_ok=True)
+    conn = sqlite3.connect(DATABASE_PATH)
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL,
+            email TEXT,
+            phone TEXT
+        )
+    """)
+    # 插入默认用户（INSERT OR IGNORE 防止重复）
+    cur.execute("INSERT OR IGNORE INTO users (username, password, email, phone) VALUES (?, ?, ?, ?)",
+                ("admin", "admin123", "admin@example.com", "13800138000"))
+    cur.execute("INSERT OR IGNORE INTO users (username, password, email, phone) VALUES (?, ?, ?, ?)",
+                ("alice", "alice2025", "alice@example.com", "13900139001"))
+    conn.commit()
+    conn.close()
+    print("✅ 数据库初始化完成")
 
 # =============================================
 # 🔐 第 1 层防护：IP 级别速率限制
@@ -197,6 +228,69 @@ def validate_content_type():
             abort(400)
 
 
+@app.route("/register", methods=["GET", "POST"])
+def register():
+    """注册页面 — 使用参数化查询，防 SQL 注入"""
+    message = None
+    if request.method == "POST":
+        username = request.form.get("username", "")
+        password = request.form.get("password", "")
+        email = request.form.get("email", "")
+        phone = request.form.get("phone", "")
+
+        # ✅ 安全：使用参数化查询（? 占位符），用户输入仅作为数据处理
+        sql = "INSERT INTO users (username, password, email, phone) VALUES (?, ?, ?, ?)"
+        print(f"[REGISTER SQL] {sql} | params: ({username}, {password}, {email}, {phone})", flush=True)
+
+        conn = sqlite3.connect(DATABASE_PATH)
+        try:
+            cur = conn.cursor()
+            cur.execute(sql, (username, password, email, phone))
+            conn.commit()
+            return render_template("login.html",
+                                   error="注册成功，请登录",
+                                   csrf_token=generate_csrf_token(),
+                                   captcha_svg=generate_captcha()[0])
+        except Exception as e:
+            message = f"注册失败：{e}"
+        finally:
+            conn.close()
+
+    return render_template("register.html", message=message)
+
+
+@app.route("/search")
+def search():
+    """搜索用户 — 使用参数化查询，防 SQL 注入"""
+    keyword = request.args.get("keyword", "")
+    results = []
+
+    if keyword:
+        # ✅ 安全：使用参数化查询（? 占位符），LIKE 参数也通过 ? 传递
+        sql = "SELECT id, username, email, phone FROM users WHERE username LIKE ? OR email LIKE ?"
+        like_param = f"%{keyword}%"
+        print(f"[SEARCH SQL] {sql} | params: ('{like_param}', '{like_param}')", flush=True)
+
+        conn = sqlite3.connect(DATABASE_PATH)
+        try:
+            cur = conn.cursor()
+            cur.execute(sql, (like_param, like_param))
+            rows = cur.fetchall()
+            for row in rows:
+                results.append({"id": row[0], "username": row[1], "email": row[2], "phone": row[3]})
+        except Exception as e:
+            print(f"[SEARCH ERROR] {e}", flush=True)
+        finally:
+            conn.close()
+
+    # 渲染首页并传递搜索结果
+    username = session.get("username")
+    user = None
+    if username and username in USERS:
+        user = USERS[username]
+    return render_template("index.html", user=user, results=results, keyword=keyword)
+
+
 @app.route("/admin")
 def admin_panel():
     username = session.get("username")
@@ -212,7 +306,7 @@ def index():
     user = None
     if username and username in USERS:
         user = USERS[username]
-    return render_template("index.html", user=user)
+    return render_template("index.html", user=user, results=[], keyword="")
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -332,6 +426,8 @@ def logout():
 
 
 if __name__ == "__main__":
+    # 初始化数据库
+    init_db()
     # 🔐 关闭 debug 模式，使用环境变量控制
     debug_mode = os.environ.get("FLASK_DEBUG", "0") == "1"
     app.run(debug=debug_mode, host="0.0.0.0", port=5000)
