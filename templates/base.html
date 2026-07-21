@@ -13,7 +13,11 @@
         </div>
         <div class="nav-right">
             {% if session.get('username') %}
+                {% if avatar_url %}
+                    <img src="{{ avatar_url }}" class="nav-avatar" alt="头像">
+                {% endif %}
                 <span class="nav-welcome">欢迎，{{ session['username'] }}</span>
+                <a href="/upload" class="nav-link">上传头像</a>
                 <a href="/logout" class="nav-link">退出</a>
             {% else %}
                 <a href="/login" class="nav-link">登录</a>

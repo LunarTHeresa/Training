@@ -1,5 +1,10 @@
 # 安全审计报告（不提交到 GitHub）
 安全审计报告.md
+漏洞修复报告.md
 
 # SQLite 数据库文件（运行时自动生成）
 data/
+
+# 用户上传的文件（运行时自动生成）
+static/uploads/*
+!static/uploads/.gitkeep

@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+    <h2>📤 上传头像</h2>
+
+    {% if message %}
+        <div class="upload-msg {% if file_url %}success{% else %}error{% endif %}">{{ message }}</div>
+    {% endif %}
+
+    {% if file_url %}
+        <div class="upload-preview">
+            <p style="margin-bottom:8px;font-size:14px;color:#888;">预览：</p>
+            <img src="{{ file_url }}" class="preview-img" alt="头像预览">
+            <p style="margin-top:8px;font-size:13px;color:#888;">
+                文件：<a href="{{ file_url }}" target="_blank">{{ filename }}</a>
+            </p>
+        </div>
+        <div style="margin-top:16px;display:flex;gap:8px;">
+            <a href="/" class="btn">🏠 返回首页</a>
+            <a href="/upload" class="btn" style="background:#6c757d;">继续上传</a>
+        </div>
+    {% else %}
+        <form method="post" enctype="multipart/form-data" class="upload-form">
+            <div class="form-group">
+                <label for="file">选择图片文件</label>
+                <input type="file" id="file" name="file" class="file-input" required>
+            </div>
+            <button type="submit" class="btn">上传</button>
+        </form>
+        <p style="margin-top:12px;font-size:13px;color:#888;">仅支持 JPG/PNG/GIF/BMP/WEBP 格式，大小限制 16MB</p>
+    {% endif %}
+</div>
+{% endblock %}

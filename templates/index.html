@@ -2,7 +2,18 @@
 {% block content %}
 {% if user %}
     <div class="card">
-        <h2>欢迎回来，{{ user['username'] }}！</h2>
+        <div class="user-header">
+            <div class="user-avatar">
+                {% if avatar_url %}
+                    <img src="{{ avatar_url }}" alt="头像" class="avatar-img">
+                {% else %}
+                    <div class="avatar-placeholder">{{ user['username'][0] | upper }}</div>
+                {% endif %}
+            </div>
+            <div class="user-info-header">
+                <h2>欢迎回来，{{ user['username'] }}！</h2>
+            </div>
+        </div>
         <div class="user-info">
             <ul class="info-list">
                 <li><span class="label">用户名</span><span class="value">{{ user['username'] }}</span></li>
@@ -12,7 +23,10 @@
                 <li><span class="label">余额</span><span class="value">{{ user['balance'] }}</span></li>
             </ul>
         </div>
-        <a href="/logout" class="btn">退出登录</a>
+        <div style="margin-top:12px;display:flex;gap:8px;">
+            <a href="/upload" class="btn">📤 上传头像</a>
+            <a href="/logout" class="btn">退出登录</a>
+        </div>
     </div>
 {% else %}
     <div class="card">

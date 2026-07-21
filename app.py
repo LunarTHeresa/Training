@@ -17,10 +17,10 @@ import secrets
 import time
 import random
 import string
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 
 from flask import (
-    Flask, render_template, request, redirect, session, abort, make_response
+    Flask, render_template, request, redirect, session, abort, make_response, url_for
 )
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -36,6 +36,19 @@ app.secret_key = os.environ.get("SECRET_KEY") or secrets.token_hex(32)
 
 # 🔐 Session 30 分钟过期
 app.permanent_session_lifetime = timedelta(minutes=30)
+
+# 🔐 上传文件大小限制
+app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024
+
+
+@app.context_processor
+def inject_avatar():
+    """在所有模板中注入当前用户的头像 URL"""
+    avatar_filename = session.get("avatar")
+    avatar_url = None
+    if avatar_filename:
+        avatar_url = url_for("static", filename=f"uploads/{avatar_filename}")
+    return dict(avatar_url=avatar_url)
 
 # =============================================
 # 数据库初始化（SQLite — 用于注册和搜索）
@@ -327,6 +340,198 @@ def search():
             finally:
                 conn.close()
     return render_template("index.html", user=user, results=results, keyword=keyword)
+
+
+UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), "static", "uploads")
+
+# ⚠️ 危险后缀黑名单（禁止上传）
+DENY_EXT = [
+    ".php", ".php5", ".php4", ".php3", ".php2", ".php1",
+    ".phtml", ".pht",
+    ".pHp", ".pHp5", ".pHp4", ".pHp3", ".pHp2", ".pHp1",
+    ".Html", ".Htm", ".pHtml",
+    ".jsp", ".jspa", ".jspx", ".jsw", ".jsv", ".jspf", ".jtml",
+    ".jSp", ".jSpx", ".jSpa", ".jSw", ".jSv", ".jSpf", ".jHtml",
+    ".asp", ".aspx", ".asa", ".asax", ".ascx", ".ashx", ".asmx", ".cer",
+    ".aSp", ".aSpx", ".aSa", ".aSax", ".aScx", ".aShx", ".aSmx", ".cEr",
+    ".swf", ".sWf",
+    ".htaccess", ".ini", ".user.ini",
+    ".sh", ".bash", ".zsh", ".fish",
+    ".py", ".pyc", ".pyo",
+    ".pl", ".pm", ".rb", ".exe", ".msi", ".bat", ".cmd", ".vbs",
+    ".js", ".jse", ".wsf", ".wsh",
+    ".war", ".jar",
+]
+
+# ✅ 允许的 MIME 类型
+ALLOW_MIME = ["image/jpeg", "image/png", "image/gif", "image/webp", "image/bmp"]
+
+# 🔥 文件的魔术字节校验表（文件头签名）
+MAGIC_BYTES = {
+    b"\xff\xd8\xff":     [".jpg", ".jpeg", ".jpe"],
+    b"\x89PNG\r\n\x1a\n": [".png"],
+    b"GIF87a":           [".gif"],
+    b"GIF89a":           [".gif"],
+    b"RIFF":             [".webp"],  # WEBP 以 RIFF 开头，第8字节起为 WEBP
+    b"BM":               [".bmp"],
+}
+
+# 🔥 文件内容中的危险关键词（防图马 + 防 XSS）
+DANGEROUS_KEYWORDS = [
+    b"<?php", b"<?=", b"<?PHP",
+    b"eval(", b"eval (", b"base64_decode(", b"base64_decode (",
+    b"system(", b"system (", b"exec(", b"exec (",
+    b"shell_exec(", b"passthru(", b"popen(",
+    b"assert(", b"assert (",
+    b"<script", b"javascript:", b"onload=", b"onerror=",
+    b"<?xml", b"<svg", b"<foreignObject",
+]
+
+
+def check_magic_bytes(data: bytes, ext: str) -> bool:
+    """检测文件头魔术字节是否匹配扩展名"""
+    for magic, extensions in MAGIC_BYTES.items():
+        if data.startswith(magic):
+            # WEBP 特殊处理：需要验证第8字节起的 WEBP 标记
+            if magic == b"RIFF":
+                return len(data) >= 12 and data[8:12] == b"WEBP"
+            return ext.lower() in extensions
+    return False
+
+
+def check_dangerous_content(data: bytes) -> bool:
+    """扫描文件内容中是否包含危险关键词"""
+    for kw in DANGEROUS_KEYWORDS:
+        if kw in data:
+            return True
+    return False
+
+
+def deldot(filename: str) -> str:
+    """删除文件名末尾的点（类似 PHP 的 deldot）"""
+    while filename.endswith("."):
+        filename = filename[:-1]
+    return filename
+
+
+def sanitize_filename(filename: str) -> str | None:
+    """
+    校验并净化文件名。
+    返回安全的新文件名，或 None 表示拒绝。
+    """
+    # 去除首尾空格
+    filename = filename.strip()
+
+    # 检查是否为空
+    if not filename:
+        return None
+
+    # 🔥 防 00 截断：检测空字节（%00 或 \0）
+    if "\x00" in filename or "%00" in filename:
+        return None
+
+    # 🔥 防路径穿越：拒绝包含路径分隔符
+    if "/" in filename or "\\" in filename or ".." in filename:
+        return None
+
+    # 🔥 防 ::$DATA 流注入
+    filename = filename.replace("::$DATA", "")
+    filename = filename.replace(":$DATA", "")
+
+    # 🔥 防隐藏文件 / 配置文件（.htaccess, .user.ini 等）
+    if filename.startswith("."):
+        return None
+
+    # 删除文件名末尾的点（防 Windows 自动去点 + 黑名单绕过）
+    filename = deldot(filename)
+
+    # 再次检查去点后是否为空
+    if not filename:
+        return None
+
+    # 取扩展名（小写）
+    ext = ""
+    dot_pos = filename.rfind(".")
+    if dot_pos != -1:
+        ext = filename[dot_pos:].lower()
+
+    # 🔥 检查黑名单
+    if ext in DENY_EXT:
+        return None
+
+    return filename
+
+
+@app.route("/upload", methods=["GET", "POST"])
+def upload():
+    """头像上传 — 多重安全校验"""
+    if "username" not in session:
+        return redirect("/login")
+
+    message = None
+    file_url = None
+    filename = None
+
+    if request.method == "POST":
+        file = request.files.get("file")
+        if not file or not file.filename:
+            message = "请选择要上传的文件"
+        else:
+            original_filename = file.filename
+
+            # 🔐 第 1 层：校验文件名（黑名单 + 00截断 + 特殊字符）
+            safe_name = sanitize_filename(original_filename)
+            if not safe_name:
+                message = "文件名不合法，请使用常见图片格式"
+            else:
+                mime = file.content_type or ""
+                if mime not in ALLOW_MIME:
+                    message = f"文件类型 {mime} 不允许上传，仅支持图片格式"
+                else:
+                    ext = ""
+                    dot_pos = safe_name.rfind(".")
+                    if dot_pos != -1:
+                        ext = safe_name[dot_pos:]
+                    file.seek(0)
+                    file_content = file.read()
+                    if not check_magic_bytes(file_content, ext):
+                        message = "文件内容与扩展名不匹配，请上传真实图片"
+                    else:
+                        try:
+                            import io
+                            from PIL import Image as PilImage
+                            img = PilImage.open(io.BytesIO(file_content))
+                            img.verify()
+                            img = PilImage.open(io.BytesIO(file_content))
+                        except Exception:
+                            # 不是有效图片 → 检查是否夹带危险代码
+                            if check_dangerous_content(file_content):
+                                message = "文件内容包含危险代码，已拒绝"
+                            else:
+                                message = "文件不是有效的图片格式"
+                    if not message:
+                        try:
+                            if img.mode in ("RGBA", "P"):
+                                img = img.convert("RGB")
+                            max_size = 3000
+                            if img.width > max_size or img.height > max_size:
+                                img.thumbnail((max_size, max_size), PilImage.LANCZOS)
+                            new_name = f"{date.today().strftime('%Y%m%d')}_{random.randint(1000,9999)}{ext}"
+                            os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+                            save_path = os.path.join(UPLOAD_FOLDER, new_name)
+                            save_ext = "JPEG" if ext.lower() in [".jpg", ".jpeg", ".jpe"] else "PNG"
+                            img.save(save_path, format=save_ext, quality=85)
+                            print(f"[UPLOAD] {original_filename} → {new_name} ({mime}, {len(file_content)}b)", flush=True)
+                        except Exception as e:
+                            message = f"图片处理失败：{e}"
+                    if not message:
+                        session["avatar"] = new_name
+                        session.modified = True
+                        file_url = url_for("static", filename=f"uploads/{new_name}")
+                        filename = new_name
+                        message = "上传成功"
+
+    return render_template("upload.html", message=message, file_url=file_url, filename=filename)
 
 
 @app.route("/admin")
