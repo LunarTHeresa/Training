@@ -1,5 +1,15 @@
 {% extends "base.html" %}
 {% block content %}
+
+{% if page_content is not none %}
+    <div class="card page-content">
+        {{ page_content | safe }}
+        <div style="margin-top:16px;">
+            <a href="/" class="btn">返回首页</a>
+        </div>
+    </div>
+{% else %}
+
 {% if user %}
     <div class="card">
         <div class="user-header">
@@ -24,7 +34,9 @@
             </ul>
         </div>
         <div style="margin-top:12px;display:flex;gap:8px;">
+            <a href="/profile" class="btn">👤 个人中心</a>
             <a href="/upload" class="btn">📤 上传头像</a>
+            <a href="/page?name=help" class="btn">📖 帮助中心</a>
             <a href="/logout" class="btn">退出登录</a>
         </div>
     </div>
@@ -75,4 +87,5 @@
         </div>
     {% endif %}
 </div>
+{% endif %}
 {% endblock %}

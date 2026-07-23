@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block content %}
+{% if error %}
+<div class="card">
+    <h2>❌ 查找失败</h2>
+    <p>{{ error }}</p>
+    <a href="/" class="btn">返回首页</a>
+</div>
+{% elif user %}
+<div class="card">
+    <h2>👤 个人中心</h2>
+    <div class="user-info">
+        <ul class="info-list">
+            <li><span class="label">ID</span><span class="value">{{ user.id }}</span></li>
+            <li><span class="label">用户名</span><span class="value">{{ user.username }}</span></li>
+            <li><span class="label">邮箱</span><span class="value">{{ user.email }}</span></li>
+            <li><span class="label">手机</span><span class="value">{{ user.phone }}</span></li>
+            <li><span class="label">角色</span><span class="value">{{ user.role }}</span></li>
+            <li><span class="label">余额</span><span class="value">¥{{ "%.2f"|format(user.balance) }}</span></li>
+        </ul>
+    </div>
+</div>
+
+<div class="card">
+    <h3>💰 充值</h3>
+    {% if recharge_msg == "csrf_error" %}
+        <div class="upload-msg error">❌ 会话验证失败，请重试</div>
+    {% elif recharge_msg == "not_allowed" %}
+        <div class="upload-msg error">❌ 该账户暂不支持充值</div>
+    {% elif recharge_msg == "invalid_amount" %}
+        <div class="upload-msg error">❌ 金额格式无效</div>
+    {% elif recharge_msg == "negative" %}
+        <div class="upload-msg error">❌ 金额必须为正数</div>
+    {% elif recharge_msg == "sign_error" %}
+        <div class="upload-msg error">❌ 充值失败：金额已被篡改，请重新输入</div>
+    {% elif recharge_msg == "success" %}
+        <div class="upload-msg success">✅ 充值成功</div>
+    {% endif %}
+    <form method="post" action="/recharge" class="search-form" id="recharge-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="amount_sign" id="amount_sign" value="{{ amount_sign }}">
+        <div class="form-group">
+            <label for="amount">充值金额</label>
+            <input type="number" id="amount" name="amount" placeholder="输入充值金额" value="100" min="0.01" step="0.01" required>
+        </div>
+        <button type="submit" class="btn">立即充值</button>
+    </form>
+</div>
+
+<script>
+document.getElementById('amount').addEventListener('input', function() {
+    var amount = parseFloat(this.value);
+    if (amount > 0) {
+        fetch('/sign_amount?amount=' + amount)
+            .then(function(r) { return r.text(); })
+            .then(function(sign) {
+                document.getElementById('amount_sign').value = sign;
+            });
+    }
+});
+</script>
+{% endif %}
+{% endblock %}

@@ -17,6 +17,8 @@ import secrets
 import time
 import random
 import string
+import hmac
+import hashlib
 from datetime import datetime, timedelta, date
 
 from flask import (
@@ -49,6 +51,20 @@ def inject_avatar():
     if avatar_filename:
         avatar_url = url_for("static", filename=f"uploads/{avatar_filename}")
     return dict(avatar_url=avatar_url)
+
+
+# 🔐 金额签名绑定（防 Burp 改包修改金额）
+def sign_amount(amount: float) -> str:
+    """对充值金额生成 HMAC 签名"""
+    key = app.secret_key if isinstance(app.secret_key, bytes) else app.secret_key.encode()
+    msg = f"recharge:{amount:.2f}".encode()
+    return hmac.new(key, msg, hashlib.sha256).hexdigest()
+
+
+def verify_amount(amount: float, signature: str) -> bool:
+    """验证金额与签名是否匹配"""
+    expected = sign_amount(amount)
+    return hmac.compare_digest(expected, signature)
 
 # =============================================
 # 数据库初始化（SQLite — 用于注册和搜索）
@@ -95,6 +111,7 @@ limiter = Limiter(
 # =============================================
 USERS = {
     "admin": {
+        "id": 1,
         "username": "admin",
         "password": generate_password_hash("admin123"),
         "role": "admin",
@@ -103,6 +120,7 @@ USERS = {
         "balance": 99999,
     },
     "alice": {
+        "id": 2,
         "username": "alice",
         "password": generate_password_hash("alice2025"),
         "role": "user",
@@ -111,6 +129,23 @@ USERS = {
         "balance": 100,
     },
 }
+
+
+def get_user_id(username: str) -> int | None:
+    """根据用户名获取对应的 user_id"""
+    if username in USERS:
+        return USERS[username]["id"]
+    # 从 SQLite 查询
+    conn = sqlite3.connect(DATABASE_PATH)
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT rowid FROM users WHERE username = ?", (username,))
+        row = cur.fetchone()
+        return row[0] if row else None
+    except Exception:
+        return None
+    finally:
+        conn.close()
 
 # =============================================
 # 🔐 第 2 层防护：账户锁定
@@ -339,7 +374,7 @@ def search():
                 pass
             finally:
                 conn.close()
-    return render_template("index.html", user=user, results=results, keyword=keyword)
+    return render_template("index.html", user=user, results=results, keyword=keyword, page_content=None, page_name="")
 
 
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), "static", "uploads")
@@ -534,6 +569,220 @@ def upload():
     return render_template("upload.html", message=message, file_url=file_url, filename=filename)
 
 
+# =============================================
+# 📄 动态页面加载（模拟 LFI 靶场 + 全面防护）
+# =============================================
+PAGES_DIR = os.path.join(os.path.dirname(__file__), "pages")
+
+# 🔐 允许加载的页面白名单（只允许加载这些页面）
+ALLOWED_PAGES = ["help", "about", "terms"]
+
+# 🔐 禁止读取的文件扩展名
+DENIED_EXT = [".py", ".php", ".asp", ".jsp", ".ini", ".conf", ".db", ".sqlite", ".sh", ".bash"]
+
+# 🔐 禁止读取的敏感文件
+DENIED_FILES = ["flag", "flag.txt", "passwd", "shadow", "config", ".env", "id_rsa", "id_dsa", ".ssh"]
+
+# 🔐 禁止的协议/封装器（防 php://filter、data:// 等）
+DENIED_PROTOCOLS = ["php://", "data://", "file://", "ftp://", "http://", "https://", "expect://", "zlib://", "phar://"]
+
+
+@app.route("/page")
+def dynamic_page():
+    """动态加载 pages/ 目录下的页面文件（全面防 LFI）"""
+    name = request.args.get("name", "")
+
+    if not name:
+        return "页面名称不能为空"
+
+    # 🔐 防 1：PHP 封装协议攻击（php://filter、data://、php://input）
+    name_lower = name.lower()
+    for proto in DENIED_PROTOCOLS:
+        if proto in name_lower:
+            return f"不允许使用 {proto} 协议"
+
+    # 🔐 防 2：路径穿越（../ 及 Windows 变体）
+    if ".." in name or "..." in name:
+        return "页面不存在"
+    if "./" in name or ".\\" in name:
+        return "页面不存在"
+    if "\\" in name or "/" in name:
+        return "页面不存在"
+
+    # 🔐 防 3：空字节截断（%00）
+    if "\x00" in name or "%00" in name:
+        return "页面不存在"
+
+    # 🔐 防 4：读取敏感文件
+    for denied in DENIED_FILES:
+        if denied in name:
+            return "页面不存在"
+    if name.startswith("."):
+        return "页面不存在"
+    for ext in DENIED_EXT:
+        if name.endswith(ext):
+            return "页面不存在"
+
+    # 🔐 防 5：日志投毒 — 拒绝包含日志文件路径
+    if "log" in name.lower() or "access" in name.lower() or "error" in name.lower():
+        return "页面不存在"
+
+    # 🔐 防 6：Session 文件读取 — 拒绝包含 tmp 或 session 路径
+    if "tmp" in name.lower() or "sess_" in name.lower():
+        return "页面不存在"
+
+    page_content = None
+    page_path = os.path.join(PAGES_DIR, name)
+    if not name.endswith(".html"):
+        page_path += ".html"
+
+    # 🔐 防 7：路径归一化验证（确保最终路径仍在 pages/ 内）
+    try:
+        real_pages = os.path.realpath(PAGES_DIR)
+        real_path = os.path.realpath(page_path)
+        if not real_path.startswith(real_pages + os.sep):
+            return "页面不存在"
+    except Exception:
+        return "页面不存在"
+
+    if os.path.exists(real_path) and real_path.endswith(".html"):
+        with open(real_path, "r", encoding="utf-8") as f:
+            page_content = f.read()
+
+    current_user = session.get("username")
+    user = None
+    if current_user:
+        if current_user in USERS:
+            user = USERS[current_user]
+        else:
+            conn = sqlite3.connect(DATABASE_PATH)
+            try:
+                cur = conn.cursor()
+                cur.execute("SELECT username, email, phone FROM users WHERE username = ?", (current_user,))
+                row = cur.fetchone()
+                if row:
+                    user = {"username": row[0], "email": row[1], "phone": row[2], "role": "user", "balance": 0}
+            except Exception:
+                pass
+            finally:
+                conn.close()
+
+    if page_content is None:
+        page_content = "页面不存在"
+
+    return render_template("index.html", user=user, results=[], keyword="", page_content=page_content, page_name=name)
+
+
+@app.route("/profile")
+def profile():
+    """个人中心 — 只能查看自己的资料（防水平越权）"""
+    # 🔐 必须登录
+    current_user = session.get("username")
+    if not current_user:
+        return redirect("/login")
+
+    user_data = None
+    error = None
+    my_id = get_user_id(current_user)
+
+    if not my_id:
+        error = "无法获取用户信息"
+    else:
+        # 从 USERS 字典查询
+        if current_user in USERS:
+            u = USERS[current_user]
+            user_data = {
+                "id": u["id"],
+                "username": u["username"],
+                "email": u["email"],
+                "phone": u["phone"],
+                "role": u["role"],
+                "balance": u["balance"],
+            }
+        else:
+            # 从 SQLite 查询
+            conn = sqlite3.connect(DATABASE_PATH)
+            try:
+                cur = conn.cursor()
+                cur.execute("SELECT rowid, username, email, phone FROM users WHERE rowid = ?", (my_id,))
+                row = cur.fetchone()
+                if row:
+                    user_data = {
+                        "id": row[0],
+                        "username": row[1],
+                        "email": row[2],
+                        "phone": row[3],
+                        "role": "user",
+                        "balance": 0,
+                    }
+            except Exception:
+                pass
+            finally:
+                conn.close()
+
+        if not user_data:
+            error = "用户不存在"
+
+    recharge_msg = request.args.get("msg", "")
+
+    return render_template("profile.html", user=user_data, error=error, csrf_token=generate_csrf_token(), amount_sign=sign_amount(100), recharge_msg=recharge_msg)
+
+
+@app.route("/sign_amount")
+def sign_amount_api():
+    """返回指定金额的签名（供 AJAX 调用）"""
+    current_user = session.get("username")
+    if not current_user:
+        return "0"
+
+    amount_str = request.args.get("amount", "0")
+    try:
+        amount = round(float(amount_str), 2)
+    except (ValueError, TypeError):
+        return "0"
+
+    if amount <= 0:
+        return "0"
+
+    return sign_amount(amount)
+
+
+@app.route("/recharge", methods=["POST"])
+def recharge():
+    """充值"""
+    current_user = session.get("username")
+    if not current_user:
+        return redirect("/login")
+
+    # 🔐 CSRF 校验（防重放）
+    csrf_token_input = request.form.get("csrf_token", "")
+    stored_token = session.pop("csrf_token", None)
+    if not stored_token or csrf_token_input != stored_token:
+        return redirect("/profile?msg=csrf_error")
+
+    if current_user not in USERS:
+        return redirect("/profile?msg=not_allowed")
+
+    amount_str = request.form.get("amount", "0").strip()
+    amount_sign = request.form.get("amount_sign", "").strip()
+
+    try:
+        amount = round(float(amount_str), 2)
+    except (ValueError, TypeError):
+        return redirect("/profile?msg=invalid_amount")
+
+    if amount <= 0:
+        return redirect("/profile?msg=negative")
+
+    # 🔐 金额签名校验（防 Burp 改包修改金额）
+    if not amount_sign or not verify_amount(amount, amount_sign):
+        return redirect("/profile?msg=sign_error")
+
+    # ✅ 给自己充值
+    USERS[current_user]["balance"] = round(USERS[current_user]["balance"] + amount, 2)
+    return redirect("/profile?msg=success")
+
+
 @app.route("/admin")
 def admin_panel():
     username = session.get("username")
@@ -569,7 +818,7 @@ def index():
                 pass
             finally:
                 conn.close()
-    return render_template("index.html", user=user, results=[], keyword="")
+    return render_template("index.html", user=user, results=[], keyword="", page_content=None, page_name="")
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -681,7 +930,7 @@ def login():
         # 🔐 刷新 session（防 session 固定攻击）
         session.clear()
         session["username"] = username
-        return render_template("index.html", user=user_data)
+        return render_template("index.html", user=user_data, results=[], keyword="", page_content=None, page_name="")
     else:
         # ❌ 登录失败
         record_failed_attempt(username)
