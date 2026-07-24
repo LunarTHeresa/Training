@@ -6,6 +6,7 @@
         <div class="error-msg">{{ message }}</div>
     {% endif %}
     <form method="post" class="login-form" autocomplete="off">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <div class="form-group">
             <label for="username">用户名</label>
             <input type="text" id="username" name="username" placeholder="请输入用户名" required>

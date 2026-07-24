@@ -280,7 +280,14 @@ def validate_content_type():
 def register():
     """注册页面 — 使用参数化查询，防 SQL 注入"""
     message = None
+    csrf_token = generate_csrf_token()
     if request.method == "POST":
+        # 🔐 CSRF 校验
+        csrf_token_input = request.form.get("csrf_token", "")
+        stored_token = session.pop("csrf_token", None)
+        if not stored_token or csrf_token_input != stored_token:
+            return render_template("register.html", message="会话验证失败", csrf_token=generate_csrf_token())
+
         username = request.form.get("username", "")
         password = request.form.get("password", "")
         email = request.form.get("email", "")
@@ -323,7 +330,7 @@ def register():
             finally:
                 conn.close()
 
-    return render_template("register.html", message=message)
+    return render_template("register.html", message=message, csrf_token=generate_csrf_token())
 
 
 @app.route("/search")
@@ -577,6 +584,29 @@ PAGES_DIR = os.path.join(os.path.dirname(__file__), "pages")
 # 🔐 允许加载的页面白名单（只允许加载这些页面）
 ALLOWED_PAGES = ["help", "about", "terms"]
 
+
+def sanitize_html(html_content: str) -> str:
+    """净化 HTML，过滤 XSS 攻击代码"""
+    import re
+
+    # 移除 <script> 标签及其内容
+    html_content = re.sub(r'<script[^>]*>.*?</script>', '', html_content, flags=re.DOTALL | re.IGNORECASE)
+
+    # 移除 <iframe> 标签
+    html_content = re.sub(r'<iframe[^>]*>.*?</iframe>', '', html_content, flags=re.DOTALL | re.IGNORECASE)
+    html_content = re.sub(r'<iframe[^>]*/>', '', html_content, flags=re.IGNORECASE)
+
+    # 移除事件处理器（onclick, onload, onerror, onmouseover 等）
+    html_content = re.sub(r'\son\w+\s*=\s*["\'][^"\']*["\']', '', html_content, flags=re.IGNORECASE)
+
+    # 移除 javascript: 伪协议
+    html_content = re.sub(r'javascript\s*:', 'x-javascript:', html_content, flags=re.IGNORECASE)
+
+    # 移除 <svg> 标签（可嵌套恶意代码）
+    html_content = re.sub(r'<svg[^>]*>.*?</svg>', '', html_content, flags=re.DOTALL | re.IGNORECASE)
+
+    return html_content
+
 # 🔐 禁止读取的文件扩展名
 DENIED_EXT = [".py", ".php", ".asp", ".jsp", ".ini", ".conf", ".db", ".sqlite", ".sh", ".bash"]
 
@@ -647,7 +677,7 @@ def dynamic_page():
 
     if os.path.exists(real_path) and real_path.endswith(".html"):
         with open(real_path, "r", encoding="utf-8") as f:
-            page_content = f.read()
+            page_content = sanitize_html(f.read())
 
     current_user = session.get("username")
     user = None
@@ -781,6 +811,31 @@ def recharge():
     # ✅ 给自己充值
     USERS[current_user]["balance"] = round(USERS[current_user]["balance"] + amount, 2)
     return redirect("/profile?msg=success")
+
+
+@app.route("/change-password", methods=["POST"])
+def change_password():
+    """修改密码（防 CSRF）"""
+    current_user = session.get("username")
+    if not current_user:
+        return redirect("/login")
+
+    # 🔐 CSRF 校验
+    csrf_token_input = request.form.get("csrf_token", "")
+    stored_token = session.pop("csrf_token", None)
+    if not stored_token or csrf_token_input != stored_token:
+        return redirect("/profile")
+
+    new_password = request.form.get("new_password", "")
+
+    if not new_password:
+        return redirect("/profile")
+
+    # ✅ 只能改自己的密码（从 session 取用户名）
+    if current_user in USERS:
+        USERS[current_user]["password"] = generate_password_hash(new_password)
+
+    return redirect("/profile")
 
 
 @app.route("/admin")

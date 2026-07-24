@@ -47,6 +47,22 @@
     </form>
 </div>
 
+<div class="card">
+    <h3>🔑 修改密码</h3>
+    <form method="post" action="/change-password" class="search-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="form-group">
+            <label for="new_password">新密码</label>
+            <input type="password" id="new_password" name="new_password" placeholder="输入新密码" required>
+        </div>
+        <div class="form-group">
+            <label for="confirm_password">确认新密码</label>
+            <input type="password" id="confirm_password" placeholder="再次输入新密码" required>
+        </div>
+        <button type="submit" class="btn">修改密码</button>
+    </form>
+</div>
+
 <script>
 document.getElementById('amount').addEventListener('input', function() {
     var amount = parseFloat(this.value);
