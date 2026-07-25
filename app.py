@@ -22,7 +22,7 @@ import hashlib
 from datetime import datetime, timedelta, date
 
 from flask import (
-    Flask, render_template, request, redirect, session, abort, make_response, url_for
+    Flask, render_template, render_template_string, request, redirect, session, abort, make_response, url_for
 )
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -515,6 +515,12 @@ def upload():
     filename = None
 
     if request.method == "POST":
+        # 🔐 CSRF 校验
+        csrf_token_input = request.form.get("csrf_token", "")
+        stored_token = session.pop("csrf_token", None)
+        if not stored_token or csrf_token_input != stored_token:
+            return redirect("/upload")
+
         file = request.files.get("file")
         if not file or not file.filename:
             message = "请选择要上传的文件"
@@ -573,7 +579,7 @@ def upload():
                         filename = new_name
                         message = "上传成功"
 
-    return render_template("upload.html", message=message, file_url=file_url, filename=filename)
+    return render_template("upload.html", message=message, file_url=file_url, filename=filename, csrf_token=generate_csrf_token())
 
 
 # =============================================
@@ -1001,6 +1007,87 @@ def login():
             csrf_token=generate_csrf_token(),
             captcha_svg=captcha_svg,
         )
+
+
+NAV_HTML = '''
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>用户管理系统</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-left">
+            <span class="brand">用户管理系统</span>
+        </div>
+        <div class="nav-right">
+            <a href="/" class="nav-link">🏠 首页</a>
+            <a href="/welcome" class="nav-link">欢迎页</a>
+            <a href="/feedback" class="nav-link">反馈</a>
+            <a href="/login" class="nav-link">登录</a>
+        </div>
+    </nav>
+    <main class="container">
+'''
+
+
+@app.route("/welcome")
+def welcome():
+    """欢迎页面 — 使用 render_template_string 传参"""
+    name = request.args.get("name", "")
+    if not name:
+        name = "亲爱的用户，欢迎你！"
+
+    html = NAV_HTML + "<div class='card'><h1>欢迎你，{{ name }}！</h1></div></main></body></html>"
+    return render_template_string(html, name=name)
+
+
+HTML_TEMPLATE = """
+<div class='card'>
+    <h2>{{ name }} 的反馈：</h2>
+    <p>{{ message }}</p>
+    <a href='/feedback' class='btn'>继续反馈</a>
+</div>
+</main></body></html>
+"""
+
+HTML_FORM = """
+<div class='card'>
+    <h2>📝 反馈留言</h2>
+    <form method='post' class='search-form'>
+        <div class='form-group'>
+            <label>姓名</label>
+            <input type='text' name='name' placeholder='请输入你的姓名'>
+        </div>
+        <div class='form-group'>
+            <label>留言内容</label>
+            <textarea name='message' placeholder='请输入你的反馈意见' style='width:100%;padding:10px;border:1px solid #ddd;border-radius:4px;min-height:100px;' required></textarea>
+        </div>
+        <button type='submit' class='btn'>提交反馈</button>
+    </form>
+</div>
+</main></body></html>
+"""
+
+
+@app.route("/feedback", methods=["GET", "POST"])
+def feedback():
+    """反馈页面 — 使用 render_template_string 传参"""
+    if request.method == "POST":
+        name = request.form.get("name", "")
+        message = request.form.get("message", "")
+
+        if not name:
+            name = "匿名用户"
+
+        html = NAV_HTML + HTML_TEMPLATE
+        return render_template_string(html, name=name, message=message)
+
+    html = NAV_HTML + HTML_FORM
+    return render_template_string(html)
 
 
 @app.route("/captcha")
