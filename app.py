@@ -19,6 +19,7 @@ import random
 import string
 import hmac
 import hashlib
+import subprocess
 from datetime import datetime, timedelta, date
 
 from flask import (
@@ -1088,6 +1089,36 @@ def feedback():
 
     html = NAV_HTML + HTML_FORM
     return render_template_string(html)
+
+
+@app.route("/ping", methods=["GET", "POST"])
+def ping():
+    """Ping 网络诊断 — 防命令注入"""
+    if "username" not in session:
+        return redirect("/login")
+
+    output = None
+    ip = ""
+
+    if request.method == "POST":
+        ip = request.form.get("ip", "").strip()
+
+        if ip:
+            try:
+                # ✅ 安全：使用列表传参，shell=False（默认），防命令注入
+                output = subprocess.check_output(
+                    ["ping", "-c", "3", ip],
+                    stderr=subprocess.STDOUT,
+                    timeout=30
+                ).decode("utf-8", errors="replace")
+            except subprocess.CalledProcessError as e:
+                output = e.output.decode("utf-8", errors="replace")
+            except subprocess.TimeoutExpired:
+                output = "错误：命令执行超时"
+            except Exception as e:
+                output = f"错误：{e}"
+
+    return render_template("ping.html", output=output, ip=ip)
 
 
 @app.route("/captcha")

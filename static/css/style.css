@@ -394,3 +394,22 @@ body {
 .user-info-header h2 {
     margin: 0;
 }
+
+/* 终端输出 */
+.terminal-box {
+    background: #0a0a1a;
+    color: #00ff88;
+    padding: 16px;
+    border-radius: 8px;
+    margin-top: 16px;
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    line-height: 1.5;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.terminal-box pre {
+    white-space: pre-wrap;
+    word-break: break-all;
+}
